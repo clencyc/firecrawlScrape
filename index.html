@@ -1,71 +1,118 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Kenya Law Scraper</title>
+    <title>Kenya Law Scraper & Chat</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        input, button { padding: 10px; margin: 5px; }
-        input[type="url"] { width: 400px; }
-        #results { margin-top: 20px; }
-        .result { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .scraper-section { flex: 1; }
+        .chat-section { flex: 1; }
+        .chat-box { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; }
+        .chat-input { width: 100%; padding: 10px; margin-top: 10px; }
+        .message { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .user-message { background-color: #e3f2fd; text-align: right; }
+        .bot-message { background-color: #f5f5f5; }
+        .disabled { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Kenya Law Scraper</h1>
-        <form id="scrapeForm">
-            <input type="url" id="url" placeholder="Enter Kenya Law URL" required>
-            <input type="number" id="limit" placeholder="Number of pages (default: 10)" min="1" max="50">
-            <button type="submit">Scrape</button>
-        </form>
-        <div id="results"></div>
+        <!-- Existing scraper section -->
+        <div class="scraper-section">
+            <h2>Document Scraper</h2>
+            <form id="scrapeForm">
+                <input type="url" id="url" placeholder="Enter Kenya Law URL" required>
+                <input type="number" id="limit" placeholder="Pages (default: 10)" min="1" max="50">
+                <button type="submit">Scrape</button>
+            </form>
+            <div id="scrapeResults"></div>
+        </div>
+        
+        <!-- New chat section -->
+        <div class="chat-section">
+            <h2>Chat with Document</h2>
+            <div id="chatBox" class="chat-box disabled">
+                <p>Scrape a document first to start chatting</p>
+            </div>
+            <input type="text" id="chatInput" class="chat-input" placeholder="Ask about the document..." disabled>
+        </div>
     </div>
 
     <script>
+        let currentDocumentId = null;
+        
+        // Existing scrape functionality
         document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            // ... existing scrape code ...
             
-            const url = document.getElementById('url').value;
-            const limit = document.getElementById('limit').value || 10;
+            if (data.success) {
+                currentDocumentId = data.document_id; // From API response
+                enableChat();
+                // ... existing results display ...
+            }
+        });
+        
+        // New chat functionality
+        function enableChat() {
+            const chatBox = document.getElementById('chatBox');
+            const chatInput = document.getElementById('chatInput');
             
-            const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<p>Scraping in progress...</p>';
+            chatBox.classList.remove('disabled');
+            chatInput.disabled = false;
+            chatBox.innerHTML = '<p>Document loaded! Ask me anything about it.</p>';
+        }
+        
+        document.getElementById('chatInput').addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter' && e.target.value.trim()) {
+                await sendMessage(e.target.value.trim());
+                e.target.value = '';
+            }
+        });
+        
+        async function sendMessage(message) {
+            const chatBox = document.getElementById('chatBox');
+            
+            // Add user message
+            chatBox.innerHTML += `
+                <div class="message user-message">
+                    <strong>You:</strong> ${message}
+                </div>
+            `;
+            
+            // Add loading message
+            chatBox.innerHTML += `
+                <div class="message bot-message" id="loading">
+                    <strong>AI:</strong> <em>Thinking...</em>
+                </div>
+            `;
             
             try {
-                const response = await fetch('/scrape', {
+                const response = await fetch('/chat', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ url, limit })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        document_id: currentDocumentId
+                    })
                 });
                 
                 const data = await response.json();
                 
-                if (data.success) {
-                    resultsDiv.innerHTML = `
-                        <h3>Scraping Completed</h3>
-                        <p>Total pages: ${data.total_pages}</p>
-                        <p>Duration: ${data.duration} seconds</p>
-                        <div>
-                            ${data.results.map(result => `
-                                <div class="result">
-                                    <h4>${result.title || 'No Title'}</h4>
-                                    <p><strong>URL:</strong> ${result.url}</p>
-                                    <p><strong>Content Length:</strong> ${result.content_length} characters</p>
-                                    <p><strong>Content Preview:</strong> ${result.content.substring(0, 200)}...</p>
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-                } else {
-                    resultsDiv.innerHTML = `<p>Error: ${data.message}</p>`;
-                }
+                // Replace loading message
+                document.getElementById('loading').innerHTML = `
+                    <strong>AI:</strong> ${data.response}
+                `;
+                document.getElementById('loading').id = '';
+                
             } catch (error) {
-                resultsDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+                document.getElementById('loading').innerHTML = `
+                    <strong>AI:</strong> <em>Error: ${error.message}</em>
+                `;
             }
-        });
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
     </script>
 </body>
 </html>

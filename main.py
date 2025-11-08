@@ -1,7 +1,12 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 from dotenv import load_dotenv
 import os
+import httpx
+import json
+import asyncio
 from firecrawl import Firecrawl
 import time
 import re
@@ -11,8 +16,27 @@ from typing import List, Optional
 # Load environment variables
 load_dotenv()
 
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+
+
+if not GEMINI_API_KEY:
+    print("Warning: GEMINI_API_KEY not found in environment variables")
+
 # Initialize FastAPI app
 app = FastAPI(title="Kenya Law Scraper API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[""],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize Firecrawl
 firecrawl = Firecrawl(api_key=os.getenv("FIRECRAWLAPI_KEY"))
@@ -35,6 +59,23 @@ class ScrapeResponse(BaseModel):
     total_pages: int
     duration: float
     results: List[ScrapeResult]
+    document_id: Optional[str] = None
+
+class ChatMessage(BaseModel):
+    role: str 
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    document_id: Optional[str] = None
+    context: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    response: str
+    document_references: List[str]
+    confidence: Optional[float] = None
+
+scraped_documents = {}
 
 # Utility functions
 def is_kenya_law_url(url: str) -> bool:
@@ -70,10 +111,45 @@ def get_start_urls(base_url: str, limit: int = 10) -> List[str]:
         print(f"Error discovering links: {e}")
         return [base_url]
 
+
+async def call_llm(prompt: str) -> str:
+    """Call Gemini API directly via HTTP"""
+    try:
+        if not GEMINI_API_KEY:
+            return "Error: Gemini API key not configured"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "topP": 0.8,
+                        "topK": 40,
+                        "maxOutputTokens": 1000
+                    }
+                },
+                timeout=60.0
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # Extract the text from the response
+                return result["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                error_detail = response.text if response.text else f"Status {response.status_code}"
+                return f"Error: Gemini API returned {error_detail}"
+                
+    except Exception as e:
+        print(f"Error calling Gemini: {e}")
+        return "Sorry, I'm having trouble connecting to Gemini. Please try again."
+
+
 # API endpoints
 @app.get("/")
-async def root():
-    return {"message": "Kenya Law Scraper API", "status": "running"}
+async def serve_frontend():
+    return FileResponse("index.html")
 
 @app.post("/scrape", response_model=ScrapeResponse)
 async def scrape_kenya_law(request: ScrapeRequest):
@@ -141,19 +217,63 @@ async def scrape_kenya_law(request: ScrapeRequest):
         
         end_time = time.time()
         duration = end_time - start_time
+
+        doc_id = f"doc_{int(time.time())}"
+        scraped_documents[doc_id] = {
+            "content": [result.content for result in results],
+            "urls": [result.url for result in results],
+            "title": results[0].title if results else "Unknown",
+            "scraped_at": time.time()
+        }
         
         return ScrapeResponse(
             success=True,
             message=f"Successfully scraped {len(results)} pages",
             total_pages=len(results),
             duration=round(duration, 2),
-            results=results
+            results=results,
+            document_id=doc_id
         )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_document(request: ChatRequest):
+    if not request.document_id or request.document_id not in scraped_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    doc = scraped_documents[request.document_id]
+    combined_content = "\n\n".join(doc["content"])
+    
+    # Enhanced legal prompt for Gemini
+    prompt = f"""You are a helpful legal AI assistant specializing in Kenya Law. You are analyzing legal documents from the Kenya Law website.
+
+**DOCUMENT CONTENT:**
+{combined_content[:6000]}
+
+**INSTRUCTIONS:**
+- Answer based ONLY on the provided document content
+- If information isn't available in the document, clearly state: "This information is not available in the provided document"
+- For legal terms, provide brief explanations when helpful
+- Be precise and cite specific sections or paragraphs when possible
+- Use clear, professional language
+- If asked for legal advice, remind that this is for informational purposes only
+
+**USER QUESTION:** {request.message}
+
+**RESPONSE:**"""
+    
+    response = await call_llm(prompt)
+    
+    return ChatResponse(
+        response=response,
+        document_references=doc["urls"]
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": time.time()}
+
