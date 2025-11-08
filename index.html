@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kenya Law Scraper</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        input, button { padding: 10px; margin: 5px; }
+        input[type="url"] { width: 400px; }
+        #results { margin-top: 20px; }
+        .result { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kenya Law Scraper</h1>
+        <form id="scrapeForm">
+            <input type="url" id="url" placeholder="Enter Kenya Law URL" required>
+            <input type="number" id="limit" placeholder="Number of pages (default: 10)" min="1" max="50">
+            <button type="submit">Scrape</button>
+        </form>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('url').value;
+            const limit = document.getElementById('limit').value || 10;
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>Scraping in progress...</p>';
+            
+            try {
+                const response = await fetch('/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url, limit })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultsDiv.innerHTML = `
+                        <h3>Scraping Completed</h3>
+                        <p>Total pages: ${data.total_pages}</p>
+                        <p>Duration: ${data.duration} seconds</p>
+                        <div>
+                            ${data.results.map(result => `
+                                <div class="result">
+                                    <h4>${result.title || 'No Title'}</h4>
+                                    <p><strong>URL:</strong> ${result.url}</p>
+                                    <p><strong>Content Length:</strong> ${result.content_length} characters</p>
+                                    <p><strong>Content Preview:</strong> ${result.content.substring(0, 200)}...</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `<p>Error: ${data.message}</p>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
