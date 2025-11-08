@@ -30,9 +30,18 @@ if not GEMINI_API_KEY:
 # Initialize FastAPI app
 app = FastAPI(title="Kenya Law Scraper API", version="1.0.0")
 
+ALLOWED_ORIGINS = [
+    "https://firecrawlscrape.onrender.com",
+    "https://your-frontend-domain.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://haki-chain-liard.vercel.app",
+    "http://127.0.0.1:8000"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[""],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
