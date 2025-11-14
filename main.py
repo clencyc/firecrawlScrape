@@ -37,7 +37,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://haki-chain-liard.vercel.app",
     "http://127.0.0.1:8000",
-    "https://hakichain-blockchain-legal-institute.vercel.app/"
+    "https://hakichain-blockchain-legal-institute.vercel.app/",
     "https://hakichain-demo.vercel.app/"
 ]
 
